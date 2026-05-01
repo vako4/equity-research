@@ -25,12 +25,11 @@ import logging
 import math
 import sys
 from contextlib import closing
-from datetime import date, timedelta
 from pathlib import Path
 
 from equity_research.config import PRICE_BATCH_SIZE, PRICES_YEARS_BACK
 from equity_research.db import get_connection
-from equity_research.ingestion.prices import ingest_prices
+from equity_research.ingestion.prices import _date_range, ingest_prices
 
 LOG_DIR = Path(__file__).parent.parent / "logs"
 
@@ -50,12 +49,6 @@ def _resolve_tickers(explicit: list[str] | None) -> list[str]:
             "SELECT ticker FROM universe WHERE is_active = 1 ORDER BY ticker"
         ).fetchall()
     return [r[0] for r in rows]
-
-
-def _date_range(years_back: int) -> tuple[str, str]:
-    end = date.today()
-    start = end - timedelta(days=int(years_back * 365.25))
-    return start.isoformat(), end.isoformat()
 
 
 def _write_failed(tickers: list[str], start: str, end: str) -> Path:
