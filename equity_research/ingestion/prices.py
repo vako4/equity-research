@@ -138,9 +138,15 @@ def _log(
 def ingest_prices(
     tickers: list[str] | None = None,
     years_back: int = PRICES_YEARS_BACK,
+    start_date: str | None = None,
+    end_date: str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> dict:
     """Pull and persist adjusted OHLCV for active universe tickers.
+
+    start_date / end_date override years_back when both are provided (ISO format,
+    e.g. "2013-01-01"). Callers that compute the range themselves should pass both
+    so the actual fetch window matches any preview shown to the user.
 
     # TODO: per-ticker currency lookup needed for international universe expansion.
     """
@@ -149,7 +155,10 @@ def ingest_prices(
         if tickers is None:
             tickers = _active_tickers(active_conn)
 
-        start, end = _date_range(years_back)
+        if start_date is not None and end_date is not None:
+            start, end = start_date, end_date
+        else:
+            start, end = _date_range(years_back)
         stats = {"success": 0, "failed": 0, "total_rows": 0, "failed_tickers": []}
 
         try:
