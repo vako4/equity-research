@@ -20,8 +20,8 @@ def _active_tickers(conn: sqlite3.Connection) -> list[str]:
     return [r[0] for r in rows]
 
 
-def _date_range(years_back: int) -> tuple[str, str]:
-    end = date.today()
+def _date_range(years_back: int, today: date | None = None) -> tuple[str, str]:
+    end = today or date.today()
     # 365.25 corrects for leap years: 12 * 365.25 = 4383 days covers exactly 12 calendar years.
     start = end - timedelta(days=int(years_back * 365.25))
     return start.isoformat(), end.isoformat()

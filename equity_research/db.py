@@ -112,10 +112,13 @@ def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
-def init_db(db_path: Path = DB_PATH) -> None:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    with closing(get_connection(db_path)) as conn:
+def init_db(db_path: Path = DB_PATH, conn: sqlite3.Connection | None = None) -> None:
+    if conn is not None:
         conn.executescript(_SCHEMA)
+        return
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(get_connection(db_path)) as file_conn:
+        file_conn.executescript(_SCHEMA)
 
 
 if __name__ == "__main__":
