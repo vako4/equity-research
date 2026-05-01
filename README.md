@@ -2,6 +2,8 @@
 
 Factor research framework for US equities — value, quality, and momentum signals with proper backtesting infrastructure. Currently in Phase 1: data layer (universe, prices, fundamentals).
 
+See [docs/data_limitations.md](docs/data_limitations.md) for known biases and coverage gaps.
+
 ## Setup
 
 ```bash
