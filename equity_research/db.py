@@ -116,3 +116,8 @@ def init_db(db_path: Path = DB_PATH) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(get_connection(db_path)) as conn:
         conn.executescript(_SCHEMA)
+
+
+if __name__ == "__main__":
+    init_db()
+    print(f"Database initialised at {DB_PATH}")
