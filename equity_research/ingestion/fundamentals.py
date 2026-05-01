@@ -257,7 +257,9 @@ def ingest_fundamentals(
         stats = {
             "annual_success": 0, "annual_failed": 0, "annual_rows": 0,
             "quarterly_success": 0, "quarterly_failed": 0, "quarterly_rows": 0,
-            "failed_tickers": [],   # tickers where BOTH annual and quarterly failed
+            "failed_tickers": [],           # both grains failed
+            "annual_failed_tickers": [],    # annual failed (quarterly may have succeeded)
+            "quarterly_failed_tickers": [], # quarterly failed (annual may have succeeded)
         }
 
         try:
@@ -271,6 +273,7 @@ def ingest_fundamentals(
                          rows_upserted=result["annual_rows"])
                 else:
                     stats["annual_failed"] += 1
+                    stats["annual_failed_tickers"].append(ticker)
                     _log(active_conn, ticker, "fundamentals_annual", "failed",
                          error_msg=result["annual_error"])
 
@@ -281,6 +284,7 @@ def ingest_fundamentals(
                          rows_upserted=result["quarterly_rows"])
                 else:
                     stats["quarterly_failed"] += 1
+                    stats["quarterly_failed_tickers"].append(ticker)
                     _log(active_conn, ticker, "fundamentals_quarterly", "failed",
                          error_msg=result["quarterly_error"])
 
