@@ -13,6 +13,7 @@ Usage
 
 import argparse
 import sys
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -23,8 +24,10 @@ from plotly.subplots import make_subplots
 from jinja2 import Environment, FileSystemLoader
 
 from equity_research.analytics.ratios import (
-    drawdown, price_history, quality_ratios, returns_table, valuation_ratios,
+    drawdown, fundamentals_snapshot, price_history,
+    quality_ratios, returns_table, valuation_ratios,
 )
+from equity_research.db import get_connection
 
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
 TEMPLATES_DIR = Path(__file__).parent.parent / "equity_research" / "templates"
@@ -245,6 +248,68 @@ def _valuation_chart_html(ticker: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Fundamentals snapshot table builder
+# ---------------------------------------------------------------------------
+
+_SNAPSHOT_METRICS = [
+    ("revenue",          "Revenue"),
+    ("gross_profit",     "Gross Profit"),
+    ("operating_income", "Op. Income"),
+    ("net_income",       "Net Income"),
+    ("eps_diluted",      "EPS (dil.)"),
+]
+
+
+def _snapshot_table_html(df: pd.DataFrame) -> str:
+    """HTML table of the 4 most recent quarters with inline QoQ/YoY annotations.
+
+    df: 5-row DataFrame from fundamentals_snapshot(), most-recent-first (descending).
+    pct_change(-1) on descending data = (row[i] - row[i+1]) / row[i+1] = QoQ.
+    pct_change(-4) on descending data = (row[i] - row[i+4]) / row[i+4] = YoY.
+    NaN annotations are suppressed — cells show only what's available."""
+    qoq = df.pct_change(periods=-1)
+    yoy = df.pct_change(periods=-4)
+    display = df.iloc[:4]
+
+    def _fmt_val(col: str, val: float) -> str:
+        if pd.isna(val):
+            return "—"
+        if col == "eps_diluted":
+            return f"${val:.2f}"
+        return f"${val / 1e9:.1f}B"
+
+    def _fmt_pct(val: float, label: str) -> str:
+        if pd.isna(val) or not np.isfinite(val):
+            return ""
+        cls = "pos" if val >= 0 else "neg"
+        sign = "+" if val >= 0 else ""
+        return f'<br><span class="note {cls}">{sign}{val:.1%} {label}</span>'
+
+    header = (
+        "<tr><th>Period</th>"
+        + "".join(f"<th>{lbl}</th>" for _, lbl in _SNAPSHOT_METRICS)
+        + "</tr>"
+    )
+    rows_html = ""
+    for idx in display.index:
+        period = idx.strftime("%b %Y")
+        cells = f"<td>{period}</td>"
+        for col, _ in _SNAPSHOT_METRICS:
+            val_str = _fmt_val(col, display.loc[idx, col])
+            qoq_ann = _fmt_pct(qoq.loc[idx, col], "QoQ")
+            yoy_ann = _fmt_pct(yoy.loc[idx, col], "YoY")
+            cells += f"<td>{val_str}{qoq_ann}{yoy_ann}</td>"
+        rows_html += f"<tr>{cells}</tr>"
+
+    note = (
+        "<p class='note'>Revenue, Gross Profit, Op. Income, Net Income in USD billions. "
+        "EPS = net_income / shares_diluted (raw diluted shares). "
+        "QoQ and YoY vs same-source quarterly filings.</p>"
+    )
+    return f"<table><thead>{header}</thead><tbody>{rows_html}</tbody></table>{note}"
+
+
+# ---------------------------------------------------------------------------
 # Quality ratios section builder
 # ---------------------------------------------------------------------------
 
@@ -331,6 +396,27 @@ def _quality_chart_html(ticker: str) -> str:
 # ---------------------------------------------------------------------------
 
 def build(ticker: str, benchmark: str, output: Path) -> None:
+    with closing(get_connection()) as conn:
+        uni_row = conn.execute(
+            "SELECT company_name, sector, industry FROM universe WHERE ticker = ?",
+            (ticker,),
+        ).fetchone()
+        price_row = conn.execute(
+            "SELECT adj_close FROM prices_daily WHERE ticker = ? ORDER BY date DESC LIMIT 1",
+            (ticker,),
+        ).fetchone()
+        n_annual = conn.execute(
+            "SELECT COUNT(*) FROM financials_annual WHERE ticker = ?", (ticker,)
+        ).fetchone()[0]
+        n_quarterly = conn.execute(
+            "SELECT COUNT(*) FROM financials_quarterly WHERE ticker = ?", (ticker,)
+        ).fetchone()[0]
+
+    company_name = uni_row[0] if uni_row else ""
+    sector = uni_row[1] if uni_row else "—"
+    industry = uni_row[2] if uni_row else "—"
+    current_price = f"${price_row[0]:,.2f}" if price_row else "—"
+
     ph = price_history(ticker, benchmark=benchmark)
     df = returns_table(ticker, benchmark=benchmark)
 
@@ -340,6 +426,7 @@ def build(ticker: str, benchmark: str, output: Path) -> None:
     dd_chart = _drawdown_chart_html(ticker)
     val_chart = _valuation_chart_html(ticker)
     quality_chart = _quality_chart_html(ticker)
+    snapshot_html = _snapshot_table_html(fundamentals_snapshot(ticker))
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=False)
     template = env.get_template("tearsheet.html")
@@ -347,12 +434,19 @@ def build(ticker: str, benchmark: str, output: Path) -> None:
         ticker=ticker,
         benchmark=benchmark,
         run_date=date.today().isoformat(),
+        company_name=company_name,
+        sector=sector,
+        industry=industry,
+        current_price=current_price,
+        n_annual=n_annual,
+        n_quarterly=n_quarterly,
         price_chart_html=price_chart,
         returns_table_html=table_html,
         returns_chart_html=returns_chart,
         drawdown_chart_html=dd_chart,
         valuation_chart_html=val_chart,
         quality_chart_html=quality_chart,
+        snapshot_table_html=snapshot_html,
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)

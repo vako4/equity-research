@@ -362,6 +362,50 @@ def quality_ratios(ticker: str) -> pd.DataFrame:
     return pd.concat(parts).sort_index()
 
 
+def fundamentals_snapshot(ticker: str, n_quarters: int = 5) -> pd.DataFrame:
+    """
+    Most recent quarterly income-statement snapshot.
+
+    Returns n_quarters rows, most-recent-first (descending fiscal_period_end).
+    Default n=5 gives the reference row needed to compute YoY for the 4 display rows
+    (row 0 YoY = row 0 vs row 4; rows 1–3 have no YoY reference with only 5 rows).
+
+    eps_diluted is computed as net_income / shares_diluted (raw shares, not thousands).
+
+    NaN: propagates from NULL source columns; no imputation or forward-fill.
+
+    Index:   fiscal_period_end (DatetimeIndex, descending)
+    Columns: revenue, gross_profit, operating_income, net_income (all USD, raw units),
+             eps_diluted (USD per diluted share)
+    """
+    with closing(get_connection()) as conn:
+        rows = conn.execute(
+            """
+            SELECT fiscal_period_end, revenue, gross_profit, operating_income,
+                   net_income, shares_diluted
+            FROM financials_quarterly
+            WHERE ticker = ? AND fiscal_period_end IS NOT NULL
+            ORDER BY fiscal_period_end DESC
+            LIMIT ?
+            """,
+            (ticker, n_quarters),
+        ).fetchall()
+
+    if not rows:
+        raise ValueError(
+            f"No quarterly fundamentals for {ticker!r}. Run ingest_fundamentals first."
+        )
+
+    df = pd.DataFrame(rows, columns=[
+        "fiscal_period_end", "revenue", "gross_profit", "operating_income",
+        "net_income", "shares_diluted",
+    ])
+    df["fiscal_period_end"] = pd.to_datetime(df["fiscal_period_end"])
+    df = df.set_index("fiscal_period_end")
+    df["eps_diluted"] = df["net_income"] / df["shares_diluted"]
+    return df.drop(columns=["shares_diluted"])
+
+
 def price_history(ticker: str, benchmark: str = "SPY") -> pd.DataFrame:
     """
     Indexed price history for ticker and benchmark, normalized to 100 at first shared date.

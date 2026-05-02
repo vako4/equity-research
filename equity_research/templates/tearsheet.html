@@ -15,6 +15,7 @@
       max-width: 1100px;
     }
     h1   { font-size: 1.7rem; margin: 0 0 4px; }
+    .company { font-weight: 400; font-size: 1.1rem; color: #6c757d; }
     .sub { color: #6c757d; font-size: 0.9rem; margin: 0 0 32px; }
     h2   {
       font-size: 1.05rem;
@@ -46,8 +47,13 @@
 </head>
 <body>
 
-<h1>{{ ticker }}</h1>
-<p class="sub">Tearsheet &nbsp;·&nbsp; {{ run_date }} &nbsp;·&nbsp; Benchmark: {{ benchmark }}</p>
+<h1>{{ ticker }} <span class="company">{{ company_name }}</span></h1>
+<p class="sub">
+  {{ sector }} &nbsp;·&nbsp; {{ industry }}
+  &nbsp;·&nbsp; <strong>{{ current_price }}</strong>
+  &nbsp;·&nbsp; Benchmark: {{ benchmark }}
+  &nbsp;·&nbsp; {{ run_date }}
+</p>
 
 <h2>Price History vs {{ benchmark }}</h2>
 {{ price_chart_html | safe }}
@@ -64,6 +70,18 @@
 
 <h2>Quality Ratios</h2>
 {{ quality_chart_html | safe }}
+
+<h2>Fundamentals Snapshot</h2>
+{{ snapshot_table_html | safe }}
+
+<hr style="margin: 40px 0 16px; border-color: #dee2e6;">
+<p class="note">
+  Price data: yfinance (adj_close).
+  Fundamentals: yfinance ({{ n_annual }} annual&nbsp;/&nbsp;{{ n_quarterly }} quarterly filings as of {{ run_date }}).
+  &nbsp;·&nbsp;
+  <a href="https://github.com/vako4/equity-research/blob/main/data_limitations.md" style="color:#6c757d;">Data limitations</a>
+</p>
+<p class="note">Tearsheet generated {{ run_date }} from local DB.</p>
 
 </body>
 </html>
