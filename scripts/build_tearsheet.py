@@ -19,9 +19,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from jinja2 import Environment, FileSystemLoader
 
-from equity_research.analytics.ratios import drawdown, price_history, returns_table
+from equity_research.analytics.ratios import (
+    drawdown, price_history, quality_ratios, returns_table, valuation_ratios,
+)
 
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
 TEMPLATES_DIR = Path(__file__).parent.parent / "equity_research" / "templates"
@@ -183,6 +186,147 @@ def _drawdown_chart_html(ticker: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Valuation ratios section builder
+# ---------------------------------------------------------------------------
+
+_RATIO_PANELS = [
+    ("pe_ttm",  "P/E (TTM)"),
+    ("pb",      "P/B"),
+    ("ev_ebit", "EV/EBIT (TTM)"),
+]
+
+
+def _valuation_chart_html(ticker: str) -> str:
+    """Three stacked subplots — one per ratio — with independent y-axes.
+    Each series is dropna()'d independently so P/B (1q history) renders its
+    full range while P/E and EV/EBIT (4q TTM) start later.
+    include_plotlyjs=False — bundle already inlined by _price_chart_html."""
+    df = valuation_ratios(ticker)
+
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        subplot_titles=[label for _, label in _RATIO_PANELS],
+    )
+
+    for i, (col, label) in enumerate(_RATIO_PANELS, start=1):
+        series = df[col].dropna()
+        fig.add_trace(
+            go.Scatter(
+                x=series.index.tolist(),
+                y=series.round(2).tolist(),
+                line=dict(color="#0d6efd", width=1.5),
+                hovertemplate="%{x|%Y-%m-%d}: %{y:.1f}x<extra></extra>",
+                showlegend=False,
+            ),
+            row=i, col=1,
+        )
+        fig.update_yaxes(
+            title_text=label,
+            title_standoff=10,
+            gridcolor="#dee2e6",
+            row=i, col=1,
+        )
+
+    fig.update_layout(
+        height=650,
+        margin=dict(l=0, r=0, t=30, b=0),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        font=dict(
+            family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+            size=12,
+            color="#212529",
+        ),
+    )
+    fig.update_xaxes(showgrid=False)
+    return fig.to_html(full_html=False, include_plotlyjs=False)
+
+
+# ---------------------------------------------------------------------------
+# Quality ratios section builder
+# ---------------------------------------------------------------------------
+
+_QUALITY_PANELS = [
+    ("roe",          "ROE (TTM)"),
+    ("roce",         "ROCE (TTM)"),
+    ("gross_margin", "Gross Margin"),
+    ("debt_equity",  "Debt / Equity"),
+]
+
+
+def _quality_chart_html(ticker: str) -> str:
+    """4 stacked subplots, one per quality metric, annual + quarterly overlaid.
+    Annual: solid width=2; quarterly: dashed width=1.5. Same #0d6efd colour.
+    Legend appears once (first panel only) via legendgroup.
+    include_plotlyjs=False — bundle already inlined by _price_chart_html."""
+    df = quality_ratios(ticker)
+    ann = df[df["frequency"] == "annual"]
+    qrt = df[df["frequency"] == "quarterly"]
+
+    fig = make_subplots(
+        rows=4, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.07,
+        subplot_titles=[label for _, label in _QUALITY_PANELS],
+    )
+
+    for i, (col, _) in enumerate(_QUALITY_PANELS, start=1):
+        first_panel = (i == 1)
+
+        ann_s = ann[col].dropna()
+        qrt_s = qrt[col].dropna()
+
+        fig.add_trace(
+            go.Scatter(
+                x=ann_s.index.tolist(),
+                y=ann_s.round(4).tolist(),
+                name="Annual",
+                legendgroup="annual",
+                showlegend=first_panel,
+                mode="lines+markers",
+                line=dict(color="#0d6efd", width=2, dash="solid"),
+                hovertemplate="%{x|%Y-%m-%d}: %{y:.3f}<extra></extra>",
+            ),
+            row=i, col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=qrt_s.index.tolist(),
+                y=qrt_s.round(4).tolist(),
+                name="Quarterly",
+                legendgroup="quarterly",
+                showlegend=first_panel,
+                mode="lines+markers",
+                line=dict(color="#0d6efd", width=1.5, dash="dash"),
+                hovertemplate="%{x|%Y-%m-%d}: %{y:.3f}<extra></extra>",
+            ),
+            row=i, col=1,
+        )
+        fig.update_yaxes(
+            title_standoff=10,
+            gridcolor="#dee2e6",
+            row=i, col=1,
+        )
+
+    fig.update_layout(
+        height=760,
+        margin=dict(l=0, r=0, t=30, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        font=dict(
+            family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+            size=12,
+            color="#212529",
+        ),
+    )
+    fig.update_xaxes(showgrid=False)
+    return fig.to_html(full_html=False, include_plotlyjs=False)
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -194,6 +338,8 @@ def build(ticker: str, benchmark: str, output: Path) -> None:
     table_html = _returns_table_html(df, ticker, benchmark)
     returns_chart = _returns_chart_html(df, ticker, benchmark)
     dd_chart = _drawdown_chart_html(ticker)
+    val_chart = _valuation_chart_html(ticker)
+    quality_chart = _quality_chart_html(ticker)
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=False)
     template = env.get_template("tearsheet.html")
@@ -205,6 +351,8 @@ def build(ticker: str, benchmark: str, output: Path) -> None:
         returns_table_html=table_html,
         returns_chart_html=returns_chart,
         drawdown_chart_html=dd_chart,
+        valuation_chart_html=val_chart,
+        quality_chart_html=quality_chart,
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)
