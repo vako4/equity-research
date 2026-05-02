@@ -2,6 +2,7 @@ data/equity.db
 data/*.db
 data/universe_snapshots/
 logs/
+reports/
 __pycache__/
 *.pyc
 *.pyo

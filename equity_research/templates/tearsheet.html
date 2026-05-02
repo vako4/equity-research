@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ ticker }} Tearsheet — {{ run_date }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8f9fa;
+      color: #212529;
+      margin: 0;
+      padding: 40px 48px;
+      max-width: 1100px;
+    }
+    h1   { font-size: 1.7rem; margin: 0 0 4px; }
+    .sub { color: #6c757d; font-size: 0.9rem; margin: 0 0 32px; }
+    h2   {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #495057;
+      border-bottom: 1px solid #dee2e6;
+      padding-bottom: 6px;
+      margin: 36px 0 16px;
+    }
+    /* Returns table */
+    table {
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      min-width: 380px;
+    }
+    th, td {
+      padding: 7px 18px;
+      text-align: right;
+      border-bottom: 1px solid #dee2e6;
+      white-space: nowrap;
+    }
+    th { color: #6c757d; font-weight: 600; }
+    th:first-child, td:first-child { text-align: left; padding-left: 0; }
+    tbody tr:last-child td { border-bottom: none; font-weight: 600; }
+    .pos { color: #198754; }
+    .neg { color: #dc3545; }
+    .note { color: #6c757d; font-size: 0.78rem; margin-top: 6px; }
+  </style>
+</head>
+<body>
+
+<h1>{{ ticker }}</h1>
+<p class="sub">Tearsheet &nbsp;·&nbsp; {{ run_date }} &nbsp;·&nbsp; Benchmark: {{ benchmark }}</p>
+
+<h2>Price History vs {{ benchmark }}</h2>
+{{ price_chart_html | safe }}
+
+<h2>Returns vs {{ benchmark }}</h2>
+{{ returns_chart_html | safe }}
+{{ returns_table_html | safe }}
+
+<h2>Drawdown from Peak</h2>
+{{ drawdown_chart_html | safe }}
+
+</body>
+</html>
