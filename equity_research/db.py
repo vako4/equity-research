@@ -12,7 +12,11 @@ CREATE TABLE IF NOT EXISTS universe (
     industry     TEXT,
     added_date   DATE NOT NULL,
     removed_date DATE,
-    is_active    INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
+    is_active    INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    -- Added Phase 2: ETF benchmarks (SPY/QQQ/IWM) live here with is_benchmark=1,
+    -- is_active=0 so they satisfy the prices_daily FK but are invisible to
+    -- standard universe queries that filter WHERE is_active = 1.
+    is_benchmark INTEGER NOT NULL DEFAULT 0 CHECK (is_benchmark IN (0, 1))
 );
 
 CREATE TABLE IF NOT EXISTS prices_daily (
