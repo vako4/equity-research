@@ -266,6 +266,102 @@ def valuation_ratios(ticker: str) -> pd.DataFrame:
     )
 
 
+def quality_ratios(ticker: str) -> pd.DataFrame:
+    """
+    Quality and solvency ratios at each report_date from annual and quarterly filings.
+
+    Two source DataFrames are built independently (one from financials_annual, one from
+    financials_quarterly), then concatenated with a 'frequency' discriminator column.
+
+    TTM treatment:
+      - Quarterly: rolling 4-quarter sum for net_income and operating_income
+        (min_periods=4). NaN before 4 quarters of history accumulate.
+      - Annual: the annual flow figure IS the TTM by definition — no rolling needed.
+
+    gross_margin uses single-period gross_profit / revenue (not TTM) because margin
+    is a rate, not a level.
+
+    NULL total_debt is treated as 0 throughout (fillna(0) applied to both cap_employed
+    and debt_equity). For US-listed equities, NULL debt in yfinance almost always
+    means zero debt, not missing data.
+
+    NaN conditions:
+      - total_equity <= 0: ROE, ROCE, debt_equity all NaN.
+      - cap_employed (equity + debt) <= 0: ROCE NaN.
+      - revenue <= 0: gross_margin NaN.
+      - net_income_ttm / op_income_ttm NaN (< 4 quarters of quarterly history).
+      - No forward-fill — gaps at the report_date level are informative.
+
+    Index:   DatetimeIndex at report_date, sorted ascending (annual + quarterly mixed).
+             NOT guaranteed unique — annual and quarterly reports for the same fiscal
+             period can share a date when filed together (e.g. Q4 + FY same day).
+             Downstream consumers should filter by 'frequency' before scalar lookup.
+    Columns: frequency (str: 'annual'|'quarterly'),
+             roe (float), roce (float) — decimal fractions (0.30 = 30%),
+             gross_margin (float) — decimal fraction (0.43 = 43%),
+             debt_equity (float) — dimensionless ratio (1.5 = 1.5x).
+    """
+    _COLS = [
+        "report_date", "revenue", "gross_profit", "net_income",
+        "operating_income", "total_equity", "total_debt",
+    ]
+    _SQL = """
+        SELECT report_date, revenue, gross_profit, net_income, operating_income,
+               total_equity, total_debt
+        FROM {table}
+        WHERE ticker = ? AND report_date IS NOT NULL
+        ORDER BY report_date
+    """
+
+    with closing(get_connection()) as conn:
+        annual_rows = conn.execute(_SQL.format(table="financials_annual"), (ticker,)).fetchall()
+        quarterly_rows = conn.execute(_SQL.format(table="financials_quarterly"), (ticker,)).fetchall()
+
+    def _ratios(rows: list, frequency: str, ttm_rolling: bool) -> pd.DataFrame:
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows, columns=_COLS)
+        df["report_date"] = pd.to_datetime(df["report_date"])
+        df = df.sort_values("report_date").reset_index(drop=True)
+
+        if ttm_rolling:
+            net_inc = df["net_income"].rolling(4, min_periods=4).sum()
+            op_inc = df["operating_income"].rolling(4, min_periods=4).sum()
+        else:
+            net_inc = df["net_income"]
+            op_inc = df["operating_income"]
+
+        df = df.set_index("report_date")
+        net_inc.index = df.index
+        op_inc.index = df.index
+
+        eq = df["total_equity"]
+        debt = df["total_debt"].fillna(0)
+        cap_employed = eq + debt
+
+        roe = (net_inc / eq).where(eq > 0)
+        roce = (op_inc / cap_employed).where((eq > 0) & (cap_employed > 0))
+        gross_margin = (df["gross_profit"] / df["revenue"]).where(df["revenue"] > 0)
+        debt_equity = (debt / eq).where(eq > 0)
+
+        return pd.DataFrame({
+            "frequency": frequency,
+            "roe": roe,
+            "roce": roce,
+            "gross_margin": gross_margin,
+            "debt_equity": debt_equity,
+        })
+
+    ann = _ratios(annual_rows, "annual", ttm_rolling=False)
+    qrt = _ratios(quarterly_rows, "quarterly", ttm_rolling=True)
+
+    parts = [p for p in (ann, qrt) if not p.empty]
+    if not parts:
+        raise ValueError(f"No fundamentals for {ticker!r}. Run ingest_fundamentals first.")
+
+    return pd.concat(parts).sort_index()
+
+
 def price_history(ticker: str, benchmark: str = "SPY") -> pd.DataFrame:
     """
     Indexed price history for ticker and benchmark, normalized to 100 at first shared date.
