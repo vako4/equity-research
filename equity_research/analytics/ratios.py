@@ -29,6 +29,13 @@ from equity_research.db import get_connection
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _compute_ev(merged: pd.DataFrame) -> pd.Series:
+    """EV = market_cap + total_debt - cash. NULL debt/cash treated as 0.
+    See docs/data_limitations.md for sign conventions and treatment of NULLs."""
+    market_cap = merged["adj_close"] * merged["shares_diluted"]
+    return market_cap + merged["total_debt"].fillna(0) - merged["cash"].fillna(0)
+
+
 def _load_prices(conn: sqlite3.Connection, ticker: str) -> pd.Series:
     """adj_close as a float Series indexed by DatetimeIndex, sorted ascending."""
     rows = conn.execute(
@@ -256,14 +263,78 @@ def valuation_ratios(ticker: str) -> pd.DataFrame:
     # P/B: NaN when book equity is non-positive (see NaN conditions in docstring)
     pb = (market_cap / merged["total_equity"]).where(merged["total_equity"] > 0)
 
-    # EV/EBIT TTM: NULL debt/cash treated as 0 (best-effort; see column definitions)
-    ev = market_cap + merged["total_debt"].fillna(0) - merged["cash"].fillna(0)
+    ev = _compute_ev(merged)
     ev_ebit = (ev / merged["op_income_ttm"]).where(merged["op_income_ttm"] > 0)
 
     return pd.DataFrame(
         {"pe_ttm": pe, "pb": pb, "ev_ebit": ev_ebit},
         index=merged.index,
     )
+
+
+def fcf_ratios(ticker: str) -> pd.DataFrame:
+    """
+    Daily FCF yield (FCF TTM / EV) from carried-forward quarterly fundamentals.
+
+    TTM construction: rolling 4-quarter sum of free_cash_flow computed at each
+    report_date BEFORE the merge_asof join — same discipline as valuation_ratios.
+    free_cash_flow is stored as yfinance reports it (CFO + signed capex).
+    See docs/data_limitations.md for sign conventions.
+
+    Negative FCF is NOT NaN'd — a company burning cash should rank low on FCF
+    yield, not be excluded. Negative FCF / positive EV = negative yield, which
+    sorts correctly to the bottom of a descending-yield screen.
+
+    NaN conditions:
+      - Fewer than 4 quarterly rows before the trading date (TTM incomplete).
+      - EV <= 0: see .where(ev > 0) comment below.
+
+    Index:   DatetimeIndex, daily (trading days only)
+    Columns: fcf_yield (float, dimensionless — e.g. 0.05 = 5% FCF yield)
+    """
+    with closing(get_connection()) as conn:
+        prices = _load_prices(conn, ticker)
+        rows = conn.execute(
+            """
+            SELECT report_date, free_cash_flow, shares_diluted, total_debt, cash
+            FROM financials_quarterly
+            WHERE ticker = ? AND report_date IS NOT NULL
+            ORDER BY report_date
+            """,
+            (ticker,),
+        ).fetchall()
+
+    if prices.empty:
+        raise ValueError(f"No price data for {ticker!r}. Run ingest_prices first.")
+    if not rows:
+        raise ValueError(
+            f"No quarterly fundamentals for {ticker!r}. Run ingest_fundamentals first."
+        )
+
+    fund = pd.DataFrame(
+        rows, columns=["report_date", "free_cash_flow", "shares_diluted", "total_debt", "cash"]
+    )
+    fund["report_date"] = pd.to_datetime(fund["report_date"])
+    fund = fund.sort_values("report_date").reset_index(drop=True)
+
+    fund["fcf_ttm"] = fund["free_cash_flow"].rolling(4, min_periods=4).sum()
+
+    prices_df = prices.rename("adj_close").to_frame()
+    merged = pd.merge_asof(
+        prices_df,
+        fund.set_index("report_date"),
+        left_index=True,
+        right_index=True,
+        direction="backward",
+    )
+
+    ev = _compute_ev(merged)
+    # Strict positive: EV near zero produces extreme yields that distort ranks.
+    # Negative EV produces a negative yield that mis-sorts cash-rich companies
+    # to the bottom of a descending-yield screen — they should be excluded entirely.
+    fcf_yield = (merged["fcf_ttm"] / ev).where(ev > 0)
+
+    return pd.DataFrame({"fcf_yield": fcf_yield}, index=merged.index)
 
 
 def quality_ratios(ticker: str) -> pd.DataFrame:

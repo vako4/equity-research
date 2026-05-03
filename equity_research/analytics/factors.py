@@ -7,6 +7,7 @@ from equity_research.analytics import ratios
 
 _VALUATION_COLS = ["pe_ttm", "pb", "ev_ebit"]
 _QUALITY_COLS = ["roe", "roce", "gross_margin", "debt_equity"]
+_FCF_COLS = ["fcf_yield"]
 
 
 def _nan_series(cols: list[str], name: str) -> pd.Series:
@@ -38,3 +39,14 @@ def quality_factor(ticker: str, as_of_date: pd.Timestamp) -> pd.Series:
     row = prior.iloc[-1].drop("frequency").rename(ticker)
     # roce is NaN when total_equity <= 0 — quality_ratios enforces this contract
     return row
+
+
+def fcf_yield_factor(ticker: str, as_of_date: pd.Timestamp) -> pd.Series:
+    try:
+        df = ratios.fcf_ratios(ticker)
+    except ValueError:
+        return _nan_series(_FCF_COLS, ticker)
+    candidates = df[df.index <= as_of_date]
+    if candidates.empty:
+        return _nan_series(_FCF_COLS, ticker)
+    return candidates.iloc[-1].rename(ticker)

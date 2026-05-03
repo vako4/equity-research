@@ -92,3 +92,48 @@ build_screen(as_of_date: pd.Timestamp, screen_fn: Callable[[pd.DataFrame], pd.Da
 ```
 
 Calls `compute`, applies `screen_fn`, writes HTML. No business logic in the entry point.
+
+---
+
+## Phase 3.5 Findings: FCF Yield Factor and Screen Comparison
+
+**Date:** 2026-05-03  
+**Source:** `scripts/screen_comparison.py` run on live DB.
+
+### Overlap measurement
+
+`magic_formula` and `fcf_quality_screen` (both top-30) share **24 of 30 tickers (80%)** at
+2026-05-03. Eligible universe: 327 tickers for Magic Formula (requires positive
+`operating_income_ttm`), 335 for FCF Quality (negative FCF passes through; EV/EBIT's
+positive-TTM gate is stricter).
+
+### Decision: keep screens separate
+
+`fcf_yield` is NOT added as a third factor to `magic_formula`. Both `ev_ebit` and
+`fcf_yield` share EV in the denominator, so high overlap on cheap-quality businesses is
+expected — adding `fcf_yield` to the composite would primarily double-weight the
+EV-denominator signal, not add independent information.
+
+### Signal structure of the overlap and divergence
+
+The 24 shared names form a high-quality core: capital-efficient software-services, branded
+retail, and asset-light industrials that score well on both EBIT margin and cash conversion.
+
+Divergence is systematic and signal-additive, not noise:
+
+- **6 unique to Magic Formula** (FCX, HAS, MRK, PHM, ULTA, ZTS): high EBIT margin but
+  lower FCF conversion. Capex-heavy, working-capital-intensive, or R&D-heavy businesses
+  where accrual earnings lead cash.
+- **6 unique to FCF Quality** (ABNB, EXPD, INTU, LMT, RMD, TTD): asset-light, high
+  FCF/EBIT ratios. Platform, services, software, and contract-based businesses with
+  minimal capital requirements between EBIT and free cash.
+
+This is the EBIT-tilted vs FCF-tilted cut. The two screens are complements: each captures
+a meaningful and distinct subset of "cheap quality."
+
+### Forward note for Phase 4
+
+Having two distinct screens enables a direct backtest comparison: does an EBIT-tilted
+strategy (Magic Formula) outperform an FCF-tilted one (FCF Quality) on a risk-adjusted
+basis? Folding the factors into one composite would foreclose this question. Run both
+screens per rebalance date in Phase 4 and compare Sharpe/drawdown profiles.
