@@ -24,6 +24,10 @@ yfinance returns approximately 4 years of annual periods and 5 quarters of quart
 
 Concrete examples from the current run: BRK-B has an all-NULL 2021 annual row (yfinance returns the row but cannot populate it); GEV (April 2024 spinoff from GE) has annual rows back to 2022 derived from the parent's consolidated statements, which may not reflect GEV as a standalone entity.
 
+## Capex Sign Convention
+
+`capex` is stored signed-negative in `financials_quarterly` and `financials_annual` (yfinance convention). FCF = `operating_cash_flow + capex`, NOT `operating_cash_flow - capex`. yfinance's pre-computed `free_cash_flow` column follows this convention and is internally consistent; prefer it over manual recomputation.
+
 ## Universe Construction
 
 Constituent list scraped from Wikipedia, not from an authoritative index provider. Wikipedia is generally accurate and updated promptly, but is not suitable for production-grade backtesting where precise reconstitution dates matter.
