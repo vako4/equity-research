@@ -4,6 +4,8 @@
 
 Universe reflects current S&P 500 membership only. Companies removed before today's first scrape are absent from all tables. Any backtest using this data overstates returns by excluding delisted and degraded companies.
 
+TODO Phase 4: source point-in-time constituent lists before any multi-date backtest.
+
 ## Look-Ahead Bias (Partial Mitigation)
 
 Cross-statement alignment uses a 45-day tolerance window; balance sheet columns more than 45 days from the income statement date are rejected. Fiscal period end dates are stored as reported. What we *don't* control: yfinance does not expose original filing dates, so `report_date` is estimated (period end + 90/45 days). Factors built on this data may embed mild look-ahead in the first weeks after a period closes.
